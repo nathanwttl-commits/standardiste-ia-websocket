@@ -1,0 +1,8 @@
+{
+  "name": "standardiste-ia",
+  "type": "module",
+  "dependencies": {
+    "fastify": "^4.26.0",
+    "@fastify/websocket": "^8.3.1"
+  }
+}
