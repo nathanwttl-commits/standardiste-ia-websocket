@@ -22,6 +22,20 @@ fastify.get('/conversation', { websocket: true }, (connection) => {
     console.log('❌ Connexion fermée')
   })
 })
+fastify.post('/voice', async (request, reply) => {
+  const twiml = `
+    <?xml version="1.0" encoding="UTF-8"?>
+    <Response>
+      <Say voice="alice" language="fr-FR">
+        Bonjour. Le standard IA est maintenant actif.
+      </Say>
+    </Response>
+  `
+
+  reply
+    .header('Content-Type', 'text/xml')
+    .send(twiml)
+})
 
 fastify.listen({
   port: process.env.PORT || 3000,
