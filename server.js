@@ -1,4 +1,4 @@
-import Fastify from 'fastify'
+import formbody from '@fastify/formbody'
 import websocket from '@fastify/websocket'
 import formbody from '@fastify/formbody'
 
@@ -6,6 +6,7 @@ const fastify = Fastify({ logger: true })
 
 fastify.register(formbody)
 fastify.register(websocket)
+fastify.register(formbody)
 
 // Route WebSocket (conversation)
 fastify.get('/conversation', { websocket: true }, (connection) => {
