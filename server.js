@@ -1,15 +1,15 @@
 import Fastify from 'fastify'
 import websocket from '@fastify/websocket'
+import formbody from '@fastify/formbody'
 
 const fastify = Fastify({ logger: true })
 
-await fastify.register(websocket)
+fastify.register(formbody)
+fastify.register(websocket)
 
-/**
- * Route WebSocket (pour plus tard – OK de la garder)
- */
+// Route WebSocket (conversation)
 fastify.get('/conversation', { websocket: true }, (connection) => {
-  console.log('🔌 WebSocket connecté')
+  console.log('WebSocket connecté')
 
   connection.socket.send(
     JSON.stringify({
@@ -19,38 +19,31 @@ fastify.get('/conversation', { websocket: true }, (connection) => {
   )
 
   connection.socket.on('message', (message) => {
-    console.log('📩 Message reçu :', message.toString())
+    console.log('Message reçu :', message.toString())
   })
 
   connection.socket.on('close', () => {
-    console.log('❌ Connexion WebSocket fermée')
+    console.log('Connexion WebSocket fermée')
   })
 })
 
-/**
- * ✅ ROUTE VOICE — CELLE QUE TWILIO APPELLE
- */
+// Route appelée par Twilio
 fastify.post('/voice', async (request, reply) => {
-  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+  const twiml = `
+<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice" language="fr-FR">
     Bonjour. Le standard IA est maintenant actif.
   </Say>
-</Response>`
+</Response>
+  `
 
   reply
     .header('Content-Type', 'text/xml')
     .send(twiml)
 })
 
-/**
- * Lancement serveur (OBLIGATOIRE pour Railway)
- */
-const port = process.env.PORT || 3000
-
-await fastify.listen({
-  port,
+fastify.listen({
+  port: process.env.PORT || 3000,
   host: '0.0.0.0'
 })
-
-console.log(`🚀 Serveur lancé sur le port ${port}`)
