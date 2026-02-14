@@ -2,40 +2,47 @@ import Fastify from 'fastify'
 import websocket from '@fastify/websocket'
 import formbody from '@fastify/formbody'
 
-const fastify = Fastify({ logger: true })
+const start = async () => {
 
-await fastify.register(formbody)
-await fastify.register(websocket)
+  const fastify = Fastify({ logger: true })
 
-// ✅ ROUTES APRÈS initialisation
+  await fastify.register(formbody)
+  await fastify.register(websocket)
 
-fastify.get('/conversation', { websocket: true }, (connection, req) => {
-  console.log('WebSocket connecté')
+  // =========================
+  // ROUTE VOICE (Twilio)
+  // =========================
+  fastify.post('/voice', async (request, reply) => {
 
-  connection.socket.on('message', message => {
-    console.log('Message reçu:', message.toString())
-  })
-})
-
-fastify.post('/voice', async (request, reply) => {
-
-  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice" language="fr-FR">
     Bonjour. Le standard IA est maintenant actif.
   </Say>
 </Response>`
 
-  reply.type('text/xml').send(twiml)
-})
+    reply.type('text/xml').send(twiml)
+  })
 
-// ✅ LANCEMENT À LA FIN
+  // =========================
+  // ROUTE WEBSOCKET (future IA temps réel)
+  // =========================
+  fastify.get('/conversation', { websocket: true }, (connection) => {
+    console.log('WebSocket connecté')
 
-const PORT = process.env.PORT || 3000
+    connection.socket.on('message', message => {
+      console.log('Message reçu:', message.toString())
+    })
+  })
 
-await fastify.listen({
-  port: PORT,
-  host: '0.0.0.0'
-})
+  const PORT = process.env.PORT || 3000
 
-console.log(`🚀 Serveur lancé sur ${PORT}`)
+  await fastify.listen({
+    port: PORT,
+    host: '0.0.0.0'
+  })
+
+  console.log(`🚀 Serveur lancé sur ${PORT}`)
+}
+
+start()
