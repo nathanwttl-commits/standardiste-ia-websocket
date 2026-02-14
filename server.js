@@ -1,54 +1,36 @@
-// =============================
-// ROUTE /conversation (WebSocket)
-// =============================
-
-fastify.get('/conversation', { websocket: true }, (connection, req) => {
-
-  console.log('🎤 WebSocket connecté')
-
-  connection.socket.on('message', (message) => {
-    console.log('Message reçu:', message.toString())
-  })
-
-  connection.socket.on('close', () => {
-    console.log('Connexion WebSocket fermée')
-  })
-})
 import Fastify from 'fastify'
 import websocket from '@fastify/websocket'
 import formbody from '@fastify/formbody'
 
 const fastify = Fastify({ logger: true })
 
-// 🔹 IMPORTANT pour Twilio
 await fastify.register(formbody)
-
-// 🔹 WebSocket (pour plus tard)
 await fastify.register(websocket)
 
-// =============================
-// ROUTE /voice (Twilio appelle ici)
-// =============================
+// ✅ ROUTES APRÈS initialisation
+
+fastify.get('/conversation', { websocket: true }, (connection, req) => {
+  console.log('WebSocket connecté')
+
+  connection.socket.on('message', message => {
+    console.log('Message reçu:', message.toString())
+  })
+})
+
 fastify.post('/voice', async (request, reply) => {
 
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice" language="fr-FR">
-    Bonjour. Connexion au standard intelligent.
+    Bonjour. Le standard IA est maintenant actif.
   </Say>
-  <Connect>
-    <Stream url="wss://standardiste-v1-ia-production.up.railway.app/conversation" />
-  </Connect>
 </Response>`
 
-  reply
-    .type('text/xml')
-    .send(twiml)
+  reply.type('text/xml').send(twiml)
 })
 
-// =============================
-// Lancement serveur (OBLIGATOIRE Railway)
-// =============================
+// ✅ LANCEMENT À LA FIN
+
 const PORT = process.env.PORT || 3000
 
 await fastify.listen({
@@ -56,4 +38,4 @@ await fastify.listen({
   host: '0.0.0.0'
 })
 
-console.log(`🚀 Serveur lancé sur le port ${PORT}`)
+console.log(`🚀 Serveur lancé sur ${PORT}`)
