@@ -1,3 +1,19 @@
+// =============================
+// ROUTE /conversation (WebSocket)
+// =============================
+
+fastify.get('/conversation', { websocket: true }, (connection, req) => {
+
+  console.log('🎤 WebSocket connecté')
+
+  connection.socket.on('message', (message) => {
+    console.log('Message reçu:', message.toString())
+  })
+
+  connection.socket.on('close', () => {
+    console.log('Connexion WebSocket fermée')
+  })
+})
 import Fastify from 'fastify'
 import websocket from '@fastify/websocket'
 import formbody from '@fastify/formbody'
@@ -18,8 +34,11 @@ fastify.post('/voice', async (request, reply) => {
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice" language="fr-FR">
-    Bonjour. Le standard IA est maintenant actif.
+    Bonjour. Connexion au standard intelligent.
   </Say>
+  <Connect>
+    <Stream url="wss://standardiste-v1-ia-production.up.railway.app/conversation" />
+  </Connect>
 </Response>`
 
   reply
