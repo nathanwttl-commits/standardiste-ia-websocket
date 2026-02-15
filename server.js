@@ -1,6 +1,5 @@
 import Fastify from 'fastify'
 import formbody from '@fastify/formbody'
-import fetch from 'node-fetch'
 
 const fastify = Fastify({ logger: true })
 
