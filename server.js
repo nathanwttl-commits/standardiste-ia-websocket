@@ -1,48 +1,75 @@
 import Fastify from 'fastify'
-import websocket from '@fastify/websocket'
 import formbody from '@fastify/formbody'
 
-const start = async () => {
+const fastify = Fastify({ logger: true })
 
-  const fastify = Fastify({ logger: true })
+await fastify.register(formbody)
 
-  await fastify.register(formbody)
-  await fastify.register(websocket)
 
-  // =========================
-  // ROUTE VOICE (Twilio)
-  // =========================
-  fastify.post('/voice', async (request, reply) => {
+// ============================
+// ROUTE /voice
+// ============================
 
-    const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say voice="alice" language="fr-FR">
-    Bonjour. Le standard IA est maintenant actif.
-  </Say>
-</Response>`
+fastify.post('/voice', async (request, reply) => {
 
-    reply.type('text/xml').send(twiml)
-  })
+  const twiml = `
+  <Response>
+    <Gather input="speech" action="/conversation" method="POST" speechTimeout="auto">
+      <Say voice="alice" language="fr-FR">
+        Bonjour. Comment puis-je vous aider ?
+      </Say>
+    </Gather>
+    <Say>Je n'ai pas compris. Pouvez-vous répéter ?</Say>
+    <Redirect>/voice</Redirect>
+  </Response>
+  `
 
-  // =========================
-  // ROUTE WEBSOCKET (future IA temps réel)
-  // =========================
-  fastify.get('/conversation', { websocket: true }, (connection) => {
-    console.log('WebSocket connecté')
+  reply.type('text/xml').send(twiml)
+})
 
-    connection.socket.on('message', message => {
-      console.log('Message reçu:', message.toString())
-    })
-  })
 
-  const PORT = process.env.PORT || 3000
+// ============================
+// ROUTE /conversation
+// ============================
 
-  await fastify.listen({
-    port: PORT,
-    host: '0.0.0.0'
-  })
+fastify.post('/conversation', async (request, reply) => {
 
-  console.log(`🚀 Serveur lancé sur ${PORT}`)
-}
+  const userSpeech = request.body.SpeechResult || "Aucune réponse détectée"
 
-start()
+  console.log("🎤 Utilisateur :", userSpeech)
+
+  // 👉 POUR L'INSTANT on simule Make
+  // Plus tard on branchera le webhook Make ici
+
+  let iaResponse = "Merci. Je traite votre demande."
+
+  if (userSpeech.toLowerCase().includes("rendez-vous")) {
+    iaResponse = "Très bien. Pour quel jour souhaitez-vous prendre rendez-vous ?"
+  }
+
+  const twiml = `
+  <Response>
+    <Gather input="speech" action="/conversation" method="POST" speechTimeout="auto">
+      <Say voice="alice" language="fr-FR">
+        ${iaResponse}
+      </Say>
+    </Gather>
+  </Response>
+  `
+
+  reply.type('text/xml').send(twiml)
+})
+
+
+// ============================
+// LANCEMENT
+// ============================
+
+const PORT = process.env.PORT || 3000
+
+await fastify.listen({
+  port: PORT,
+  host: '0.0.0.0'
+})
+
+console.log(`🚀 Serveur lancé sur ${PORT}`)
