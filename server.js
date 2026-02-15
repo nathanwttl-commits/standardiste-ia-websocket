@@ -10,12 +10,9 @@ const MAKE_WEBHOOK = process.env.MAKE_WEBHOOK_URL
 const MAKE_API_KEY = process.env.MAKE_API_KEY
 const TRANSFER_NUMBER = process.env.TRANSFER_NUMBER
 
-// Mémoire simple par appel
 const sessions = new Map()
 
-// =====================================================
-// ROUTE /voice (entrée appel)
-// =====================================================
+// ================= VOICE =================
 
 fastify.post('/voice', async (request, reply) => {
 
@@ -33,11 +30,6 @@ fastify.post('/voice', async (request, reply) => {
       Bonjour. Comment puis-je vous aider ?
     </Say>
   </Gather>
-
-  <Say voice="Polly.Celine" language="fr-FR">
-    Je n'ai pas compris. Pouvez-vous répéter ?
-  </Say>
-
   <Redirect>/voice</Redirect>
 </Response>
   `.trim()
@@ -45,9 +37,7 @@ fastify.post('/voice', async (request, reply) => {
   reply.type('text/xml').send(twiml)
 })
 
-// =====================================================
-// ROUTE /conversation
-// =====================================================
+// ================= CONVERSATION =================
 
 fastify.post('/conversation', async (request, reply) => {
 
@@ -55,15 +45,10 @@ fastify.post('/conversation', async (request, reply) => {
   const confidence = parseFloat(request.body.Confidence || 0)
   const callSid = request.body.CallSid
 
-  console.log("🎤 Utilisateur :", userSpeech)
-  console.log("📊 Confiance :", confidence)
-
-  // Filtrage anti-bruit
   if (!userSpeech || confidence < 0.60) {
     return reply.type('text/xml').send(generateRetry())
   }
 
-  // Initialisation session si nouvelle
   if (!sessions.has(callSid)) {
     sessions.set(callSid, {
       step: "identify",
@@ -74,10 +59,6 @@ fastify.post('/conversation', async (request, reply) => {
   }
 
   const state = sessions.get(callSid)
-
-  // =====================================================
-  // Appel MAKE
-  // =====================================================
 
   let makeResponse
 
@@ -105,38 +86,29 @@ fastify.post('/conversation', async (request, reply) => {
     makeResponse = await response.json()
 
   } catch (error) {
-    console.error("❌ Erreur Make :", error)
     return reply.type('text/xml').send(generateTransfer())
   }
 
-  // Sécurité JSON
   if (!makeResponse || typeof makeResponse !== "object") {
     return reply.type('text/xml').send(generateTransfer())
   }
 
-  // Mise à jour du state
   if (makeResponse.updated_state) {
     sessions.set(callSid, makeResponse.updated_state)
   }
 
-  // Transfert
   if (makeResponse.transfer) {
     return reply.type('text/xml').send(generateTransfer(makeResponse.message))
   }
 
-  // Fin appel
   if (makeResponse.end_call) {
     return reply.type('text/xml').send(generateHangup(makeResponse.message))
   }
 
-  // Réponse normale + boucle
   return reply.type('text/xml').send(generateGather(makeResponse.message))
-
 })
 
-// =====================================================
-// Fonctions utilitaires TwiML
-// =====================================================
+// ================= UTILITAIRES =================
 
 function generateGather(message) {
   return `
@@ -169,7 +141,7 @@ function generateRetry() {
     language="fr-FR"
   >
     <Say voice="Polly.Celine" language="fr-FR">
-      Je n'ai pas bien entendu. Pouvez-vous reformuler votre demande ?
+      Je n'ai pas bien entendu. Pouvez-vous reformuler ?
     </Say>
   </Gather>
 </Response>
@@ -198,14 +170,9 @@ function generateHangup(message) {
   `.trim()
 }
 
-// =====================================================
-// LANCEMENT SERVEUR
-// =====================================================
-
 await fastify.listen({
   port: PORT,
   host: '0.0.0.0'
 })
 
-console.log(`🚀 Serveur lancé sur ${PORT}`)
-
+console.log("🚀 Serveur lancé")
