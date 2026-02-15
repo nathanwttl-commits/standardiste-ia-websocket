@@ -1,13 +1,21 @@
 import Fastify from 'fastify'
 import formbody from '@fastify/formbody'
+import fetch from 'node-fetch'
 
 const fastify = Fastify({ logger: true })
 
 await fastify.register(formbody)
 
+const PORT = process.env.PORT || 3000
+const MAKE_WEBHOOK = process.env.MAKE_WEBHOOK_URL
+const MAKE_API_KEY = process.env.MAKE_API_KEY
+const TRANSFER_NUMBER = process.env.TRANSFER_NUMBER
+
+// Mémoire simple par appel
+const sessions = new Map()
 
 // =====================================================
-// ROUTE /voice  (entrée appel)
+// ROUTE /voice (entrée appel)
 // =====================================================
 
 fastify.post('/voice', async (request, reply) => {
@@ -20,7 +28,6 @@ fastify.post('/voice', async (request, reply) => {
     method="POST"
     timeout="5"
     speechTimeout="2"
-    bargeIn="false"
     language="fr-FR"
   >
     <Say voice="Polly.Celine" language="fr-FR">
@@ -34,27 +41,125 @@ fastify.post('/voice', async (request, reply) => {
 
   <Redirect>/voice</Redirect>
 </Response>
-  `
+  `.trim()
 
   reply.type('text/xml').send(twiml)
 })
 
-
 // =====================================================
-// ROUTE /conversation  (analyse réponse utilisateur)
+// ROUTE /conversation
 // =====================================================
 
 fastify.post('/conversation', async (request, reply) => {
 
   const userSpeech = request.body.SpeechResult || ""
-  const confidence = request.body.Confidence || 0
+  const confidence = parseFloat(request.body.Confidence || 0)
+  const callSid = request.body.CallSid
 
   console.log("🎤 Utilisateur :", userSpeech)
   console.log("📊 Confiance :", confidence)
 
-  // 🔒 Filtrage anti-bruit
+  // Filtrage anti-bruit
   if (!userSpeech || confidence < 0.60) {
-    const retryTwiml = `
+    return reply.type('text/xml').send(generateRetry())
+  }
+
+  // Initialisation session si nouvelle
+  if (!sessions.has(callSid)) {
+    sessions.set(callSid, {
+      step: "identify",
+      immat: null,
+      immatConfirmed: false,
+      correctionCount: 0
+    })
+  }
+
+  const state = sessions.get(callSid)
+
+  // =====================================================
+  // Appel MAKE
+  // =====================================================
+
+  let makeResponse
+
+  try {
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 4000)
+
+    const response = await fetch(MAKE_WEBHOOK, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-make-apikey": MAKE_API_KEY
+      },
+      body: JSON.stringify({
+        transcript: userSpeech,
+        callSid,
+        state
+      }),
+      signal: controller.signal
+    })
+
+    clearTimeout(timeout)
+
+    makeResponse = await response.json()
+
+  } catch (error) {
+    console.error("❌ Erreur Make :", error)
+    return reply.type('text/xml').send(generateTransfer())
+  }
+
+  // Sécurité JSON
+  if (!makeResponse || typeof makeResponse !== "object") {
+    return reply.type('text/xml').send(generateTransfer())
+  }
+
+  // Mise à jour du state
+  if (makeResponse.updated_state) {
+    sessions.set(callSid, makeResponse.updated_state)
+  }
+
+  // Transfert
+  if (makeResponse.transfer) {
+    return reply.type('text/xml').send(generateTransfer(makeResponse.message))
+  }
+
+  // Fin appel
+  if (makeResponse.end_call) {
+    return reply.type('text/xml').send(generateHangup(makeResponse.message))
+  }
+
+  // Réponse normale + boucle
+  return reply.type('text/xml').send(generateGather(makeResponse.message))
+
+})
+
+// =====================================================
+// Fonctions utilitaires TwiML
+// =====================================================
+
+function generateGather(message) {
+  return `
+<Response>
+  <Gather 
+    input="speech"
+    action="/conversation"
+    method="POST"
+    timeout="5"
+    speechTimeout="2"
+    language="fr-FR"
+  >
+    <Say voice="Polly.Celine" language="fr-FR">
+      ${message}
+    </Say>
+  </Gather>
+</Response>
+  `.trim()
+}
+
+function generateRetry() {
+  return `
 <Response>
   <Gather 
     input="speech"
@@ -69,64 +174,34 @@ fastify.post('/conversation', async (request, reply) => {
     </Say>
   </Gather>
 </Response>
-    `
-    return reply.type('text/xml').send(retryTwiml)
-  }
+  `.trim()
+}
 
-  // =====================================================
-  // 🔵 ICI PLUS TARD → Appel webhook MAKE
-  // =====================================================
-
-  let iaResponse = "Je m'occupe de votre demande."
-
-  if (userSpeech.toLowerCase().includes("rendez")) {
-    iaResponse = "Très bien. Pour quel jour souhaitez-vous prendre rendez-vous ?"
-  }
-
-  if (userSpeech.toLowerCase().includes("expert")) {
-    iaResponse = "Je vérifie l'état du dossier avec l'expert. Un instant."
-  }
-
-  if (userSpeech.toLowerCase().includes("devis")) {
-    iaResponse = "Souhaitez-vous planifier un rendez-vous pour établir un devis ?"
-  }
-
-  // =====================================================
-  // Réponse + boucle
-  // =====================================================
-
-  const twiml = `
+function generateTransfer(message = "Afin de vous apporter une réponse adaptée, je vous transfère immédiatement à un responsable.") {
+  return `
 <Response>
-  <Gather 
-    input="speech"
-    action="/conversation"
-    method="POST"
-    timeout="5"
-    speechTimeout="2"
-    language="fr-FR"
-  >
-    <Say voice="Polly.Celine" language="fr-FR">
-      ${iaResponse}
-    </Say>
-  </Gather>
-
   <Say voice="Polly.Celine" language="fr-FR">
-    Je reste à votre écoute.
+    ${message}
   </Say>
-
-  <Redirect>/conversation</Redirect>
+  <Dial>${TRANSFER_NUMBER}</Dial>
 </Response>
-  `
+  `.trim()
+}
 
-  reply.type('text/xml').send(twiml)
-})
-
+function generateHangup(message) {
+  return `
+<Response>
+  <Say voice="Polly.Celine" language="fr-FR">
+    ${message}
+  </Say>
+  <Hangup/>
+</Response>
+  `.trim()
+}
 
 // =====================================================
 // LANCEMENT SERVEUR
 // =====================================================
-
-const PORT = process.env.PORT || 3000
 
 await fastify.listen({
   port: PORT,
@@ -134,3 +209,4 @@ await fastify.listen({
 })
 
 console.log(`🚀 Serveur lancé sur ${PORT}`)
+
