@@ -1,5 +1,6 @@
 import Fastify from 'fastify'
 import formbody from '@fastify/formbody'
+import { request } from 'undici'
 
 const fastify = Fastify({ logger: true })
 
@@ -12,9 +13,7 @@ const TRANSFER_NUMBER = process.env.TRANSFER_NUMBER
 
 const sessions = new Map()
 
-// =====================================================
-// ROUTE /voice
-// =====================================================
+// ================= VOICE =================
 
 fastify.post('/voice', async (request, reply) => {
 
@@ -32,7 +31,6 @@ fastify.post('/voice', async (request, reply) => {
       Bonjour. Comment puis-je vous aider ?
     </Say>
   </Gather>
-
   <Redirect>/voice</Redirect>
 </Response>
   `.trim()
@@ -40,9 +38,7 @@ fastify.post('/voice', async (request, reply) => {
   reply.type('text/xml').send(twiml)
 })
 
-// =====================================================
-// ROUTE /conversation
-// =====================================================
+// ================= CONVERSATION =================
 
 fastify.post('/conversation', async (request, reply) => {
 
@@ -50,15 +46,13 @@ fastify.post('/conversation', async (request, reply) => {
   const confidence = parseFloat(request.body.Confidence || 0)
   const callSid = request.body.CallSid
 
-  console.log("🎤 SpeechResult:", userSpeech)
-  console.log("📊 Confidence:", confidence)
+  console.log("Speech:", userSpeech)
+  console.log("Confidence:", confidence)
 
-  // 🔒 Filtrage anti-bruit ajusté
   if (!userSpeech || confidence < 0.45) {
     return reply.type('text/xml').send(generateRetry())
   }
 
-  // 🧠 Initialisation session
   if (!sessions.has(callSid)) {
     sessions.set(callSid, {
       step: "identify",
@@ -70,68 +64,50 @@ fastify.post('/conversation', async (request, reply) => {
 
   const state = sessions.get(callSid)
 
-  // =====================================================
-  // Appel MAKE
-  // =====================================================
-
   let makeResponse
 
   try {
 
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 4000)
-
-    const response = await fetch(MAKE_WEBHOOK, {
-      method: "POST",
+    const { body } = await request(MAKE_WEBHOOK, {
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
-        "x-make-apikey": MAKE_API_KEY
+        'Content-Type': 'application/json',
+        'x-make-apikey': MAKE_API_KEY
       },
       body: JSON.stringify({
         transcript: userSpeech,
         callSid,
         state
-      }),
-      signal: controller.signal
+      })
     })
 
-    clearTimeout(timeout)
-
-    makeResponse = await response.json()
+    makeResponse = await body.json()
 
   } catch (error) {
-    console.error("❌ Erreur Make:", error)
+    console.error("Make error:", error)
     return reply.type('text/xml').send(generateTransfer())
   }
 
-  // 🔒 Sécurité JSON
   if (!makeResponse || typeof makeResponse !== "object") {
     return reply.type('text/xml').send(generateTransfer())
   }
 
-  // 🔄 Mise à jour state
   if (makeResponse.updated_state) {
     sessions.set(callSid, makeResponse.updated_state)
   }
 
-  // 🔴 Transfert
   if (makeResponse.transfer) {
     return reply.type('text/xml').send(generateTransfer(makeResponse.message))
   }
 
-  // 🔚 Fin appel
   if (makeResponse.end_call) {
     return reply.type('text/xml').send(generateHangup(makeResponse.message))
   }
 
-  // 🟢 Réponse normale + boucle
   return reply.type('text/xml').send(generateGather(makeResponse.message))
-
 })
 
-// =====================================================
-// Fonctions TwiML
-// =====================================================
+// ================= UTILITAIRES =================
 
 function generateGather(message) {
   return `
@@ -157,4 +133,46 @@ function generateRetry() {
 <Response>
   <Gather 
     input="speech"
-    action=
+    action="/conversation"
+    method="POST"
+    timeout="6"
+    speechTimeout="auto"
+    language="fr-FR"
+  >
+    <Say voice="Polly.Celine" language="fr-FR">
+      Je n'ai pas bien entendu. Pouvez-vous reformuler ?
+    </Say>
+  </Gather>
+</Response>
+  `.trim()
+}
+
+function generateTransfer(message = "Afin de vous apporter une réponse adaptée, je vous transfère immédiatement à un responsable.") {
+  return `
+<Response>
+  <Say voice="Polly.Celine" language="fr-FR">
+    ${message}
+  </Say>
+  <Dial>${TRANSFER_NUMBER}</Dial>
+</Response>
+  `.trim()
+}
+
+function generateHangup(message) {
+  return `
+<Response>
+  <Say voice="Polly.Celine" language="fr-FR">
+    ${message}
+  </Say>
+  <Hangup/>
+</Response>
+  `.trim()
+}
+
+await fastify.listen({
+  port: PORT,
+  host: '0.0.0.0'
+})
+
+console.log("Server started")
+
