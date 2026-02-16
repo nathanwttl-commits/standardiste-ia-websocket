@@ -119,3 +119,4 @@ fastify.listen({ port: PORT, host: '0.0.0.0' })
     console.error(err)
     process.exit(1)
   })
+
