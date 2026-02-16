@@ -1,6 +1,5 @@
 import Fastify from 'fastify'
 import formbody from '@fastify/formbody'
-import { request } from 'undici'
 
 const fastify = Fastify({ logger: true })
 await fastify.register(formbody)
@@ -41,6 +40,7 @@ fastify.post('/conversation', async (request, reply) => {
 
   console.log("Transcript:", transcript)
   console.log("Confidence:", confidence)
+  console.log("MAKE_WEBHOOK:", MAKE_WEBHOOK)
 
   if (!transcript || confidence < 0.45) {
     return reply.type('text/xml').send(`
@@ -58,15 +58,19 @@ fastify.post('/conversation', async (request, reply) => {
 
   try {
 
-    const { body } = await request(MAKE_WEBHOOK, {
-      method: 'POST',
+    const response = await fetch(MAKE_WEBHOOK, {
+      method: "POST",
       headers: {
-        'content-type': 'application/json'
+        "Content-Type": "application/json"
       },
       body: JSON.stringify({ transcript })
     })
 
-    makeData = await body.json()
+    console.log("Make status:", response.status)
+
+    makeData = await response.json()
+
+    console.log("Make JSON:", makeData)
 
   } catch (error) {
     console.error("MAKE ERROR:", error)
