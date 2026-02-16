@@ -14,7 +14,14 @@ fastify.post('/voice', async (request, reply) => {
 
   const twiml = `
 <Response>
-  <Gather input="speech" action="/conversation" method="POST" language="fr-FR">
+  <Gather 
+    input="speech"
+    action="/conversation"
+    method="POST"
+    timeout="6"
+    speechTimeout="auto"
+    language="fr-FR"
+  >
     <Say voice="Polly.Celine" language="fr-FR">
       Bonjour. Comment puis-je vous aider ?
     </Say>
@@ -34,12 +41,11 @@ fastify.post('/conversation', async (request, reply) => {
 
   console.log("Transcript:", transcript)
   console.log("Confidence:", confidence)
-  console.log("MAKE_WEBHOOK:", MAKE_WEBHOOK)
 
-  if (!transcript || confidence < 0.6) {
+  if (!transcript || confidence < 0.45) {
     return reply.type('text/xml').send(`
 <Response>
-  <Gather input="speech" action="/conversation" method="POST" language="fr-FR">
+  <Gather input="speech" action="/conversation" method="POST" language="fr-FR" speechTimeout="auto">
     <Say voice="Polly.Celine" language="fr-FR">
       Je n'ai pas bien entendu. Pouvez-vous reformuler ?
     </Say>
@@ -52,7 +58,7 @@ fastify.post('/conversation', async (request, reply) => {
 
   try {
 
-    const { body, statusCode } = await request(MAKE_WEBHOOK, {
+    const { body } = await request(MAKE_WEBHOOK, {
       method: 'POST',
       headers: {
         'content-type': 'application/json'
@@ -60,11 +66,7 @@ fastify.post('/conversation', async (request, reply) => {
       body: JSON.stringify({ transcript })
     })
 
-    console.log("Make status:", statusCode)
-
     makeData = await body.json()
-
-    console.log("Make JSON:", makeData)
 
   } catch (error) {
     console.error("MAKE ERROR:", error)
@@ -94,7 +96,7 @@ fastify.post('/conversation', async (request, reply) => {
 
   return reply.type('text/xml').send(`
 <Response>
-  <Gather input="speech" action="/conversation" method="POST" language="fr-FR">
+  <Gather input="speech" action="/conversation" method="POST" language="fr-FR" speechTimeout="auto">
     <Say voice="Polly.Celine" language="fr-FR">
       ${makeData.message || "Je reste à votre écoute."}
     </Say>
