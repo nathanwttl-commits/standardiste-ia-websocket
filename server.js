@@ -2,19 +2,20 @@ import Fastify from 'fastify'
 import formbody from '@fastify/formbody'
 
 const fastify = Fastify({ logger: true })
-
 await fastify.register(formbody)
-
-// ===============================
-// ENV VARIABLES
-// ===============================
 
 const MAKE_WEBHOOK = process.env.MAKE_WEBHOOK_URL
 const TRANSFER_NUMBER = process.env.TRANSFER_NUMBER
 
-// ===============================
+// ==========================
+// MEMORY STORE (simple RAM)
+// ==========================
+
+const sessions = {}
+
+// ==========================
 // ROUTE /voice
-// ===============================
+// ==========================
 
 fastify.post('/voice', async (request, reply) => {
 
@@ -40,9 +41,9 @@ fastify.post('/voice', async (request, reply) => {
   reply.type('text/xml').send(twiml)
 })
 
-// ===============================
+// ==========================
 // ROUTE /conversation
-// ===============================
+// ==========================
 
 fastify.post('/conversation', async (request, reply) => {
 
@@ -51,7 +52,6 @@ fastify.post('/conversation', async (request, reply) => {
 
   console.log("===== NEW TURN =====")
   console.log("Transcript:", transcript)
-  console.log("MAKE_WEBHOOK:", MAKE_WEBHOOK)
 
   if (!transcript) {
     return reply.type('text/xml').send(`
@@ -65,6 +65,19 @@ fastify.post('/conversation', async (request, reply) => {
 `)
   }
 
+  // ==========================
+  // INIT SESSION
+  // ==========================
+
+  if (!sessions[callSid]) {
+    sessions[callSid] = {
+      step: "identify",
+      immat: null,
+      immatConfirmed: false,
+      correctionCount: 0
+    }
+  }
+
   let makeData = null
 
   try {
@@ -76,7 +89,8 @@ fastify.post('/conversation', async (request, reply) => {
       },
       body: JSON.stringify({
         transcript,
-        callSid
+        callSid,
+        state: sessions[callSid]
       })
     })
 
@@ -84,6 +98,10 @@ fastify.post('/conversation', async (request, reply) => {
     console.log("RAW MAKE RESPONSE:", raw)
 
     makeData = JSON.parse(raw)
+
+    if (makeData.updated_state) {
+      sessions[callSid] = makeData.updated_state
+    }
 
   } catch (err) {
 
@@ -115,6 +133,7 @@ fastify.post('/conversation', async (request, reply) => {
   }
 
   if (endCall) {
+    delete sessions[callSid]
     return reply.type('text/xml').send(`
 <Response>
   <Say voice="Polly.Celine" language="fr-FR">
@@ -136,9 +155,9 @@ fastify.post('/conversation', async (request, reply) => {
 `)
 })
 
-// ===============================
+// ==========================
 // START SERVER
-// ===============================
+// ==========================
 
 const PORT = process.env.PORT || 3000
 
