@@ -105,7 +105,7 @@ const start = async () => {
   <Say voice="Polly.Celine" language="fr-FR">
     ${responseText}
   </Say>
-  <Dial>06XXXXXXXX</Dial>
+  <Dial>0769170012</Dial>
 </Response>`
 
         return reply.type('text/xml').send(twiml)
