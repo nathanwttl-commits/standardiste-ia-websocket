@@ -133,7 +133,7 @@ const start = async () => {
   <Say voice="Polly.Celine" language="fr-FR">
     Je vous transfère à la réception.
   </Say>
-  <Dial>06XXXXXXXX</Dial>
+  <Dial>0769170012</Dial>
 </Response>`
 
       return reply.type('text/xml').send(fallbackTwiml)
