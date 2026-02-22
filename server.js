@@ -43,12 +43,14 @@ fastify.post('/conversation', async (request, reply) => {
   const phone = request.body.From || ""
   const callSid = request.body.CallSid
 
-  console.log("Utilisateur :", userSpeech)
-  console.log("Confiance :", confidence)
-
   if (!sessions[callSid]) {
-    sessions[callSid] = { step: "initial" }
+    sessions[callSid] = {
+      step: "initial",
+      attempt: 0
+    }
   }
+
+  const session = sessions[callSid]
 
   if (!userSpeech || confidence < 0.6) {
     return reply.type('text/xml').send(`
@@ -62,75 +64,82 @@ fastify.post('/conversation', async (request, reply) => {
 
   try {
 
-    // ==========================
-    // SI on attend une immatriculation
-    // ==========================
-    if (sessions[callSid].step === "waiting_immat") {
-
-      const immat = userSpeech
-
-      const makeResponse = await fetch("https://hook.eu1.make.com/eombd2fwis2ker13qun48oq2g8yymdvy", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          intent: "suivi_reparation",
-          immat: immat,
-          phone: phone
-        })
-      })
-
-      const makeData = await makeResponse.json()
-
-      sessions[callSid].step = "done"
-
-      return reply.type('text/xml').send(`
-<Response>
-  <Say voice="Polly.Celine" language="fr-FR">
-    ${makeData.reply}
-  </Say>
-</Response>`)
-    }
-
-    // ==========================
-    // Étape initiale → Analyse intent
-    // ==========================
     const makeResponse = await fetch("https://hook.eu1.make.com/eombd2fwis2ker13qun48oq2g8yymdvy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         speech: userSpeech,
-        phone: phone
+        phone: phone,
+        step: session.step,
+        attempt: session.attempt
       })
     })
 
+    if (!makeResponse.ok) {
+      throw new Error("Erreur HTTP Make")
+    }
+
     const makeData = await makeResponse.json()
 
-    const intent = makeData.intent
-    const immat = makeData.entities?.immat || ""
+    // ==========================
+    // Pare-feu sécurité réponse Make
+    // ==========================
+    if (!makeData || !makeData.reply || !makeData.action) {
+      throw new Error("Réponse Make invalide")
+    }
 
     // ==========================
-    // Cas : suivi réparation sans immat
+    // ACTION : DEMANDE IDENTIFIANT
     // ==========================
-    if (intent === "suivi_reparation" && !immat) {
+    if (makeData.action === "ask_identifiant") {
 
-      sessions[callSid].step = "waiting_immat"
+      session.step = "waiting_identifiant"
+      session.attempt = 1
 
       return reply.type('text/xml').send(`
 <Response>
   <Gather input="speech" action="/conversation" method="POST" language="fr-FR">
     <Say voice="Polly.Celine" language="fr-FR">
-      Pouvez-vous me communiquer votre immatriculation s'il vous plaît ?
+      ${makeData.reply}
     </Say>
   </Gather>
 </Response>`)
     }
 
     // ==========================
-    // Cas : réponse automatique
+    // ACTION : JOKER REFORMULATION
+    // ==========================
+    if (makeData.action === "joker") {
+
+      if (session.attempt >= 1) {
+        session.step = "done"
+        return reply.type('text/xml').send(`
+<Response>
+  <Say voice="Polly.Celine" language="fr-FR">
+    Je vous transfère à la réception pour un suivi personnalisé.
+  </Say>
+  <Dial>+33769170012</Dial>
+</Response>`)
+      }
+
+      session.attempt += 1
+
+      return reply.type('text/xml').send(`
+<Response>
+  <Gather input="speech" action="/conversation" method="POST" language="fr-FR">
+    <Say voice="Polly.Celine" language="fr-FR">
+      ${makeData.reply}
+    </Say>
+  </Gather>
+</Response>`)
+    }
+
+    // ==========================
+    // ACTION : RESPOND
     // ==========================
     if (makeData.action === "respond") {
 
-      sessions[callSid].step = "done"
+      session.step = "done"
 
       return reply.type('text/xml').send(`
 <Response>
@@ -141,21 +150,26 @@ fastify.post('/conversation', async (request, reply) => {
     }
 
     // ==========================
-    // Cas : transfert
+    // ACTION : TRANSFER
     // ==========================
-    sessions[callSid].step = "done"
+    if (makeData.action === "transfer") {
 
-    return reply.type('text/xml').send(`
+      session.step = "done"
+
+      return reply.type('text/xml').send(`
 <Response>
   <Say voice="Polly.Celine" language="fr-FR">
-    ${makeData.reply || "Je vous transfère pour un suivi personnalisé."}
+    ${makeData.reply}
   </Say>
   <Dial>+33769170012</Dial>
 </Response>`)
+    }
+
+    throw new Error("Action inconnue")
 
   } catch (error) {
 
-    console.error("Erreur :", error)
+    console.error("Erreur sécurisée :", error)
 
     return reply.type('text/xml').send(`
 <Response>
