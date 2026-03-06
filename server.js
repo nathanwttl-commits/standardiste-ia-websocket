@@ -33,6 +33,7 @@ fastify.post('/voice', async (request, reply) => {
   reply.type('text/xml').send(twiml)
 })
 
+
 // ==========================
 // ROUTE /conversation
 // ==========================
@@ -52,7 +53,25 @@ fastify.post('/conversation', async (request, reply) => {
 
   const session = sessions[callSid]
 
+
+  // ==========================
+  // Si Twilio n'a rien compris
+  // ==========================
   if (!userSpeech || confidence < 0.6) {
+
+    if (session.step === "waiting_identifiant") {
+
+      return reply.type('text/xml').send(`
+<Response>
+  <Gather input="speech" action="/conversation" method="POST" timeout="5" speechTimeout="auto" language="fr-FR">
+    <Say voice="Polly.Celine" language="fr-FR">
+      Je n'ai pas bien compris votre immatriculation. Pouvez-vous la répéter s'il vous plaît ?
+    </Say>
+  </Gather>
+</Response>`)
+
+    }
+
     return reply.type('text/xml').send(`
 <Response>
   <Say voice="Polly.Celine" language="fr-FR">
@@ -61,6 +80,7 @@ fastify.post('/conversation', async (request, reply) => {
   <Redirect method="POST">/voice</Redirect>
 </Response>`)
   }
+
 
   try {
 
@@ -82,6 +102,7 @@ fastify.post('/conversation', async (request, reply) => {
 
     const makeData = await makeResponse.json()
 
+
     // ==========================
     // Sécurisation réponse Make
     // ==========================
@@ -91,6 +112,7 @@ fastify.post('/conversation', async (request, reply) => {
 
     const action = makeData.action || "joker"
     const replyText = makeData.reply || "Pouvez-vous reformuler votre demande ?"
+
 
     // ==========================
     // ACTION : DEMANDE IDENTIFIANT
@@ -110,12 +132,14 @@ fastify.post('/conversation', async (request, reply) => {
 </Response>`)
     }
 
+
     // ==========================
-    // ACTION : JOKER REFORMULATION
+    // ACTION : JOKER
     // ==========================
     if (action === "joker") {
 
       if (session.attempt >= 1) {
+
         session.step = "done"
 
         return reply.type('text/xml').send(`
@@ -139,6 +163,7 @@ fastify.post('/conversation', async (request, reply) => {
 </Response>`)
     }
 
+
     // ==========================
     // ACTION : RESPOND
     // ==========================
@@ -153,6 +178,7 @@ fastify.post('/conversation', async (request, reply) => {
   </Say>
 </Response>`)
     }
+
 
     // ==========================
     // ACTION : TRANSFER
@@ -170,7 +196,9 @@ fastify.post('/conversation', async (request, reply) => {
 </Response>`)
     }
 
+
     throw new Error("Action inconnue")
+
 
   } catch (error) {
 
@@ -186,6 +214,7 @@ fastify.post('/conversation', async (request, reply) => {
   }
 
 })
+
 
 // ==========================
 // LANCEMENT SERVEUR
