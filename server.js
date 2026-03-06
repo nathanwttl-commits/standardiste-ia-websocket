@@ -70,6 +70,7 @@ fastify.post('/conversation', async (request, reply) => {
       body: JSON.stringify({
         speech: userSpeech,
         phone: phone,
+        callSid: callSid,
         step: session.step,
         attempt: session.attempt
       })
@@ -82,25 +83,28 @@ fastify.post('/conversation', async (request, reply) => {
     const makeData = await makeResponse.json()
 
     // ==========================
-    // Pare-feu sécurité réponse Make
+    // Sécurisation réponse Make
     // ==========================
-    if (!makeData || !makeData.reply || !makeData.action) {
-      throw new Error("Réponse Make invalide")
+    if (!makeData) {
+      throw new Error("Réponse Make vide")
     }
+
+    const action = makeData.action || "joker"
+    const replyText = makeData.reply || "Pouvez-vous reformuler votre demande ?"
 
     // ==========================
     // ACTION : DEMANDE IDENTIFIANT
     // ==========================
-    if (makeData.action === "ask_identifiant") {
+    if (action === "ask_identifiant") {
 
       session.step = "waiting_identifiant"
       session.attempt = 1
 
       return reply.type('text/xml').send(`
 <Response>
-  <Gather input="speech" action="/conversation" method="POST" language="fr-FR">
+  <Gather input="speech" action="/conversation" method="POST" timeout="5" speechTimeout="auto" language="fr-FR">
     <Say voice="Polly.Celine" language="fr-FR">
-      ${makeData.reply}
+      ${replyText}
     </Say>
   </Gather>
 </Response>`)
@@ -109,10 +113,11 @@ fastify.post('/conversation', async (request, reply) => {
     // ==========================
     // ACTION : JOKER REFORMULATION
     // ==========================
-    if (makeData.action === "joker") {
+    if (action === "joker") {
 
       if (session.attempt >= 1) {
         session.step = "done"
+
         return reply.type('text/xml').send(`
 <Response>
   <Say voice="Polly.Celine" language="fr-FR">
@@ -126,9 +131,9 @@ fastify.post('/conversation', async (request, reply) => {
 
       return reply.type('text/xml').send(`
 <Response>
-  <Gather input="speech" action="/conversation" method="POST" language="fr-FR">
+  <Gather input="speech" action="/conversation" method="POST" timeout="5" speechTimeout="auto" language="fr-FR">
     <Say voice="Polly.Celine" language="fr-FR">
-      ${makeData.reply}
+      ${replyText}
     </Say>
   </Gather>
 </Response>`)
@@ -137,14 +142,14 @@ fastify.post('/conversation', async (request, reply) => {
     // ==========================
     // ACTION : RESPOND
     // ==========================
-    if (makeData.action === "respond") {
+    if (action === "respond") {
 
       session.step = "done"
 
       return reply.type('text/xml').send(`
 <Response>
   <Say voice="Polly.Celine" language="fr-FR">
-    ${makeData.reply}
+    ${replyText}
   </Say>
 </Response>`)
     }
@@ -152,14 +157,14 @@ fastify.post('/conversation', async (request, reply) => {
     // ==========================
     // ACTION : TRANSFER
     // ==========================
-    if (makeData.action === "transfer") {
+    if (action === "transfer") {
 
       session.step = "done"
 
       return reply.type('text/xml').send(`
 <Response>
   <Say voice="Polly.Celine" language="fr-FR">
-    ${makeData.reply}
+    ${replyText}
   </Say>
   <Dial>+33769170012</Dial>
 </Response>`)
