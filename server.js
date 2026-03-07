@@ -36,7 +36,6 @@ Bonjour et bienvenue à la Carrosserie du Lac.
 Je suis l’assistant vocal de réception.
 Afin d’améliorer notre service, cet appel peut être enregistré.
 Comment puis-je vous aider aujourd’hui ?
-Par exemple pour un suivi de réparation ou une demande de rendez-vous.
 </Say>
 
 </Gather>
