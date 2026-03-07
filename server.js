@@ -7,15 +7,18 @@ await fastify.register(formbody)
 // ==========================
 // Mémoire temporaire par appel
 // ==========================
+
 const sessions = {}
 
 // ==========================
 // ROUTE /voice
 // ==========================
+
 fastify.post('/voice', async (request, reply) => {
 
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
+
   <Gather 
     input="speech"
     action="/conversation"
@@ -23,11 +26,15 @@ fastify.post('/voice', async (request, reply) => {
     timeout="5"
     speechTimeout="auto"
     language="fr-FR">
+
     <Say voice="Polly.Celine" language="fr-FR">
       Carrosserie. Assistant de réception. Quelle est votre demande ?
     </Say>
+
   </Gather>
+
   <Redirect method="POST">/voice</Redirect>
+
 </Response>`
 
   reply.type('text/xml').send(twiml)
@@ -37,6 +44,7 @@ fastify.post('/voice', async (request, reply) => {
 // ==========================
 // ROUTE /conversation
 // ==========================
+
 fastify.post('/conversation', async (request, reply) => {
 
   const userSpeech = request.body.SpeechResult || ""
@@ -53,34 +61,31 @@ fastify.post('/conversation', async (request, reply) => {
 
   const session = sessions[callSid]
 
-
   // ==========================
   // Si Twilio n'a rien compris
   // ==========================
+
   if (!userSpeech || confidence < 0.6) {
-
-    if (session.step === "waiting_identifiant") {
-
-      return reply.type('text/xml').send(`
-<Response>
-  <Gather input="speech" action="/conversation" method="POST" timeout="5" speechTimeout="auto" language="fr-FR">
-    <Say voice="Polly.Celine" language="fr-FR">
-      Je n'ai pas bien compris votre immatriculation. Pouvez-vous la répéter s'il vous plaît ?
-    </Say>
-  </Gather>
-</Response>`)
-
-    }
 
     return reply.type('text/xml').send(`
 <Response>
-  <Say voice="Polly.Celine" language="fr-FR">
-    Je n'ai pas bien entendu. Pouvez-vous reformuler ?
-  </Say>
-  <Redirect method="POST">/voice</Redirect>
+
+  <Gather
+    input="speech"
+    action="/conversation"
+    method="POST"
+    timeout="6"
+    speechTimeout="auto"
+    language="fr-FR">
+
+    <Say voice="Polly.Celine" language="fr-FR">
+      Je n'ai pas bien entendu. Pouvez-vous reformuler ?
+    </Say>
+
+  </Gather>
+
 </Response>`)
   }
-
 
   try {
 
@@ -90,7 +95,6 @@ fastify.post('/conversation', async (request, reply) => {
       body: JSON.stringify({
         speech: userSpeech,
         phone: phone,
-        callSid: callSid,
         step: session.step,
         attempt: session.attempt
       })
@@ -102,41 +106,54 @@ fastify.post('/conversation', async (request, reply) => {
 
     const makeData = await makeResponse.json()
 
+    // ==========================
+    // sécurité réponse Make
+    // ==========================
 
-    // ==========================
-    // Sécurisation réponse Make
-    // ==========================
-    if (!makeData) {
-      throw new Error("Réponse Make vide")
+    if (!makeData || !makeData.reply || !makeData.action) {
+      throw new Error("Réponse Make invalide")
     }
-
-    const action = makeData.action || "joker"
-    const replyText = makeData.reply || "Pouvez-vous reformuler votre demande ?"
-
 
     // ==========================
     // ACTION : DEMANDE IDENTIFIANT
     // ==========================
-    if (action === "ask_identifiant") {
+
+    if (makeData.action === "ask_identifiant") {
 
       session.step = "waiting_identifiant"
       session.attempt = 1
 
       return reply.type('text/xml').send(`
 <Response>
-  <Gather input="speech" action="/conversation" method="POST" timeout="5" speechTimeout="auto" language="fr-FR">
+
+  <Gather
+    input="speech"
+    action="/conversation"
+    method="POST"
+    timeout="6"
+    speechTimeout="auto"
+    language="fr-FR">
+
     <Say voice="Polly.Celine" language="fr-FR">
-      ${replyText}
+      ${makeData.reply}
     </Say>
+
   </Gather>
+
+  <Say voice="Polly.Celine" language="fr-FR">
+    Je n'ai pas entendu de réponse.
+  </Say>
+
+  <Redirect method="POST">/voice</Redirect>
+
 </Response>`)
     }
 
+    // ==========================
+    // ACTION : JOKER (reformulation)
+    // ==========================
 
-    // ==========================
-    // ACTION : JOKER
-    // ==========================
-    if (action === "joker") {
+    if (makeData.action === "joker") {
 
       if (session.attempt >= 1) {
 
@@ -144,10 +161,13 @@ fastify.post('/conversation', async (request, reply) => {
 
         return reply.type('text/xml').send(`
 <Response>
+
   <Say voice="Polly.Celine" language="fr-FR">
     Je vous transfère à la réception pour un suivi personnalisé.
   </Say>
+
   <Dial>+33769170012</Dial>
+
 </Response>`)
       }
 
@@ -155,50 +175,63 @@ fastify.post('/conversation', async (request, reply) => {
 
       return reply.type('text/xml').send(`
 <Response>
-  <Gather input="speech" action="/conversation" method="POST" timeout="5" speechTimeout="auto" language="fr-FR">
+
+  <Gather
+    input="speech"
+    action="/conversation"
+    method="POST"
+    timeout="6"
+    speechTimeout="auto"
+    language="fr-FR">
+
     <Say voice="Polly.Celine" language="fr-FR">
-      ${replyText}
+      ${makeData.reply}
     </Say>
+
   </Gather>
+
 </Response>`)
     }
-
 
     // ==========================
     // ACTION : RESPOND
     // ==========================
-    if (action === "respond") {
+
+    if (makeData.action === "respond") {
 
       session.step = "done"
 
       return reply.type('text/xml').send(`
 <Response>
+
   <Say voice="Polly.Celine" language="fr-FR">
-    ${replyText}
+    ${makeData.reply}
   </Say>
+
 </Response>`)
     }
-
 
     // ==========================
     // ACTION : TRANSFER
     // ==========================
-    if (action === "transfer") {
+
+    if (makeData.action === "transfer") {
 
       session.step = "done"
 
       return reply.type('text/xml').send(`
 <Response>
+
   <Say voice="Polly.Celine" language="fr-FR">
-    ${replyText}
+    ${makeData.reply}
   </Say>
+
   <Dial>+33769170012</Dial>
+
 </Response>`)
     }
 
-
     throw new Error("Action inconnue")
-
 
   } catch (error) {
 
@@ -206,10 +239,13 @@ fastify.post('/conversation', async (request, reply) => {
 
     return reply.type('text/xml').send(`
 <Response>
+
   <Say voice="Polly.Celine" language="fr-FR">
     Je vous transfère à la réception.
   </Say>
+
   <Dial>+33769170012</Dial>
+
 </Response>`)
   }
 
@@ -219,6 +255,7 @@ fastify.post('/conversation', async (request, reply) => {
 // ==========================
 // LANCEMENT SERVEUR
 // ==========================
+
 const PORT = process.env.PORT || 3000
 
 await fastify.listen({
