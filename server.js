@@ -13,14 +13,14 @@ const sessions = {}
 
 fastify.post("/voice", async (request, reply) => {
 
-const callSid = request.body.CallSid
+  const callSid = request.body.CallSid
 
-sessions[callSid] = {
-step: "initial",
-attempt: 0
-}
+  sessions[callSid] = {
+    step: "initial",
+    attempt: 1
+  }
 
-const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
 
 <Gather
@@ -50,8 +50,7 @@ https://standardiste-v1-ia-production.up.railway.app/voice
 
 </Response>`
 
-reply.type("text/xml").send(twiml)
-
+  reply.type("text/xml").send(twiml)
 })
 
 // ==========================
@@ -60,72 +59,55 @@ reply.type("text/xml").send(twiml)
 
 fastify.post("/conversation", async (request, reply) => {
 
-const speech = request.body.SpeechResult || ""
-const phone = request.body.From || ""
-const callSid = request.body.CallSid
+  const speech = request.body.SpeechResult || ""
+  const phone = request.body.From || ""
+  const callSid = request.body.CallSid
 
-if (!sessions[callSid]) {
+  if (!sessions[callSid]) {
+    sessions[callSid] = {
+      step: "initial",
+      attempt: 1
+    }
+  }
 
-sessions[callSid] = {
-step: "initial",
-attempt: 0
-}
+  const session = sessions[callSid]
 
-}
+  let makeResponse
 
-const session = sessions[callSid]
+  try {
+    makeResponse = await fetch("https://hook.eu1.make.com/eombd2fwis2ker13qun48oq2g8yymdvy", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        speech: speech,
+        phone: phone,
+        step: session.step,
+        attempt: session.attempt
+      })
+    })
+  } catch (error) {
+    console.error("Erreur Make", error)
 
-// ==========================
-// Appel Make
-// ==========================
-
-let makeResponse
-
-try {
-
-makeResponse = await fetch("https://hook.eu1.make.com/eombd2fwis2ker13qun48oq2g8yymdvy", {
-
-method: "POST",
-
-headers: {
-"Content-Type": "application/json"
-},
-
-body: JSON.stringify({
-speech: speech,
-phone: phone,
-step: session.step,
-attempt: session.attempt
-})
-
-})
-
-} catch (error) {
-
-console.error("Erreur Make", error)
-
-return reply.type("text/xml").send(`
+    return reply.type("text/xml").send(`
 <Response>
 <Say voice="Polly.Celine" language="fr-FR">
-Je rencontre un problème technique.
-Je vous transfère à la réception.
+Je rencontre un problème technique. Je vous transfère à la réception.
 </Say>
 <Dial>+33769170012</Dial>
 </Response>
 `)
-}
+  }
 
-let decision
+  let decision
 
-try {
+  try {
+    decision = await makeResponse.json()
+  } catch (error) {
+    console.error("JSON Make invalide", error)
 
-decision = await makeResponse.json()
-
-} catch {
-
-console.error("JSON Make invalide")
-
-return reply.type("text/xml").send(`
+    return reply.type("text/xml").send(`
 <Response>
 <Say voice="Polly.Celine" language="fr-FR">
 Je vous transfère à la réception.
@@ -133,59 +115,65 @@ Je vous transfère à la réception.
 <Dial>+33769170012</Dial>
 </Response>
 `)
-}
+  }
 
-// ==========================
-// Mise à jour step session
-// ==========================
+  // ==========================
+  // SECURITE MINIMALE
+  // ==========================
 
-session.step = decision.step || session.step
+  const say = decision.say || "Je rencontre un problème. Je vous transfère."
+  const listen = decision.listen ?? false
+  const transfer = decision.transfer ?? false
+  const transfer_to = decision.transfer_to || "+33769170012"
+  const end_call = decision.end_call ?? false
 
-// ==========================
-// TRANSFERT
-// ==========================
+  // ==========================
+  // MISE A JOUR SESSION
+  // ==========================
 
-if (decision.transfer) {
+  if (decision.step) {
+    session.step = decision.step
+  }
 
-return reply.type("text/xml").send(`
+  if (decision.attempt !== undefined) {
+    session.attempt = decision.attempt
+  }
+
+  // ==========================
+  // TRANSFERT
+  // ==========================
+
+  if (transfer) {
+    return reply.type("text/xml").send(`
 <Response>
-
 <Say voice="Polly.Celine" language="fr-FR">
-${decision.say}
+${say}
 </Say>
-
-<Dial>${decision.transfer_to}</Dial>
-
+<Dial>${transfer_to}</Dial>
 </Response>
 `)
+  }
 
-}
+  // ==========================
+  // FIN APPEL
+  // ==========================
 
-// ==========================
-// FIN APPEL
-// ==========================
-
-if (decision.end_call) {
-
-return reply.type("text/xml").send(`
+  if (end_call) {
+    return reply.type("text/xml").send(`
 <Response>
-
 <Say voice="Polly.Celine" language="fr-FR">
-${decision.say}
+${say}
 </Say>
-
 </Response>
 `)
+  }
 
-}
+  // ==========================
+  // ECOUTE CLIENT
+  // ==========================
 
-// ==========================
-// ECOUTE CLIENT
-// ==========================
-
-if (decision.listen) {
-
-return reply.type("text/xml").send(`
+  if (listen) {
+    return reply.type("text/xml").send(`
 <Response>
 
 <Gather
@@ -197,7 +185,7 @@ speechTimeout="auto"
 language="fr-FR">
 
 <Say voice="Polly.Celine" language="fr-FR">
-${decision.say}
+${say}
 </Say>
 
 </Gather>
@@ -212,23 +200,19 @@ https://standardiste-v1-ia-production.up.railway.app/conversation
 
 </Response>
 `)
+  }
 
-}
+  // ==========================
+  // REPONSE SIMPLE
+  // ==========================
 
-// ==========================
-// REPONSE SIMPLE
-// ==========================
-
-return reply.type("text/xml").send(`
+  return reply.type("text/xml").send(`
 <Response>
-
 <Say voice="Polly.Celine" language="fr-FR">
-${decision.say}
+${say}
 </Say>
-
 </Response>
 `)
-
 })
 
 // ==========================
@@ -238,8 +222,8 @@ ${decision.say}
 const PORT = process.env.PORT || 3000
 
 await fastify.listen({
-port: PORT,
-host: "0.0.0.0"
+  port: PORT,
+  host: "0.0.0.0"
 })
 
 console.log("Serveur lancé")
